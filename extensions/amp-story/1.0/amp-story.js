@@ -113,9 +113,11 @@ import {getDetail} from '../../../src/event-helper';
 import {getMediaQueryService} from './amp-story-media-query-service';
 import {getMode} from '../../../src/mode';
 import {getState} from '../../../src/history';
+import {installParallaxHandler} from './parallax';
 import {isExperimentOn} from '../../../src/experiments';
 import {parseQueryString} from '../../../src/url';
 import {registerServiceBuilder} from '../../../src/service';
+import {toArray} from '../../../src/types';
 import {upgradeBackgroundAudio} from './audio';
 import LocalizedStringsAr from './_locales/ar';
 import LocalizedStringsDe from './_locales/de';
@@ -831,6 +833,13 @@ export class AmpStory extends AMP.BaseElement {
 
     this.getViewport().onResize(debounce(this.win, () => this.onResize(), 300));
     this.installGestureRecognizers_();
+
+    // Install parallax handlers if opt-in is detected
+    this.parallaxService_ = installParallaxHandler(
+      this.win,
+      this.getVsync(),
+      toArray(this.element.querySelectorAll('amp-story-page'))
+    );
   }
 
   /** @private */
