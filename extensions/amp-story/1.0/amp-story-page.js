@@ -730,7 +730,11 @@ export class AmpStoryPage extends AMP.BaseElement {
 
     return includeHiddenMedia
       ? mediaSet
-      : mediaSet.filter(mediaEl => this.isMediaDisplayed_(mediaEl));
+      : mediaSet.filter(
+          mediaEl =>
+            mediaEl.hasAttribute('media-pool-exempt') ||
+            this.isMediaDisplayed_(mediaEl)
+        );
   }
 
   /**
@@ -803,7 +807,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   pauseMedia_(mediaPool, mediaEl, rewindToBeginning) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('pausing', mediaEl);
       mediaEl.pause();
       return Promise.resolve();
     } else {
@@ -833,7 +838,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   playMedia_(mediaPool, mediaEl) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('play', mediaEl);
       mediaEl.play();
       return Promise.resolve();
     } else {
@@ -898,7 +904,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   preloadMedia_(mediaPool, mediaEl) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('preload', mediaEl);
       // No-op.
       return Promise.resolve();
     } else {
@@ -926,7 +933,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   muteMedia_(mediaPool, mediaEl) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('mute', mediaEl);
       mediaEl.muted = true;
       mediaEl.setAttribute('muted', '');
       return Promise.resolve();
@@ -955,7 +963,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   unmuteMedia_(mediaPool, mediaEl) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('unmute', mediaEl);
       mediaEl.muted = false;
       mediaEl.removeAttribute('muted');
       if (mediaEl.tagName === 'AUDIO' && mediaEl.paused) {
@@ -1006,7 +1015,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    * @private
    */
   registerMedia_(mediaPool, mediaEl) {
-    if (this.isBotUserAgent_) {
+    if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+      console.log('register', mediaEl);
       // No-op.
       return Promise.resolve();
     } else {
@@ -1023,7 +1033,8 @@ export class AmpStoryPage extends AMP.BaseElement {
    */
   rewindAllMedia_() {
     return this.whenAllMediaElements_((mediaPool, mediaEl) => {
-      if (this.isBotUserAgent_) {
+      if (this.isBotUserAgent_ || mediaEl.hasAttribute('media-pool-exempt')) {
+        console.log('rewind', mediaEl);
         mediaEl.currentTime = 0;
         return Promise.resolve();
       } else {
