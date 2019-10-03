@@ -13,7 +13,7 @@
 
     <!-- videojs-->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/video.js@7.4.1/dist/video-js.css">
-  	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/videojs-vr@1.5.0/dist/videojs-vr.css">
+  	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/videojs-vr@1.7.0/dist/videojs-vr.css">
 
     <title>My Story</title>
     <meta name="viewport"
@@ -29,15 +29,36 @@
         min-height: 100% !important;
         position: relative !important;
       }
+      .red { background-color: red; }
+      .blue { background-color: blue; }
+      .rect {
+        width: 100px;
+        height: 100px;
+        margin: 50px;
+      }
+      .one {
+        top: 50px;
+        left: 50px;
+      }
+      .two {
+        top: 80px;
+        left: 80px;
+      }
     </style>
   </head>
 
   <body>
-    <amp-story standalone>
+    <amp-story standalone parallax-fx>
       <amp-story-page id="cover" class="timeline-page">
         <amp-story-grid-layer template="fill">
           <!-- <amp-video src="TODO.mp4" layout="fill"></amp-video> -->
         </amp-story-grid-layer>
+        <amp-story-grid-layer template="vertical">
+            <div class="red rect one"></div>
+          </amp-story-grid-layer>
+          <amp-story-grid-layer template="vertical">
+            <div class="blue rect two"></div>
+          </amp-story-grid-layer>
         <amp-story-grid-layer template="vertical">
           <h1>NYFW</h1>
           <h2>Day 1</h2>
@@ -58,14 +79,25 @@
 
       <amp-story-page id="page-2">
         <amp-story-grid-layer template="fill">
-          <video muted width="1280" height="720" id="videojs-vr-player" class="video-js vjs-default-skin" playsinline style="pointer-events: none !important;" media-pool-exempt>
-            <source src="./video/P10-360video_720p.mp4" type="video/mp4">
+          <video muted width="1280" height="720" id="videojs-vr-player-1" class="video-js vjs-default-skin" playsinline style="pointer-events: none !important;" media-pool-exempt>
+            <source src="./video/P9.mp4" type="video/mp4">
           </video>
         </amp-story-grid-layer>
         <amp-story-grid-layer template="vertical" align-content="end">
-          <h1 style="color:white;">three hundred sixty</h1>
+          <h1 style="color:black;">three hundred sixty page one</h1>
         </amp-story-grid-layer>
       </amp-story-page>
+
+      <amp-story-page id="page-2">
+          <amp-story-grid-layer template="fill">
+            <video muted width="1280" height="720" id="videojs-vr-player-2" class="video-js vjs-default-skin" playsinline style="pointer-events: none !important;" media-pool-exempt>
+              <source src="./video/P10.mp4" type="video/mp4">
+            </video>
+          </amp-story-grid-layer>
+          <amp-story-grid-layer template="vertical" align-content="end">
+            <h1 style="color:white;">three hundred sixty page two</h1>
+          </amp-story-grid-layer>
+        </amp-story-page>
 
     </amp-story>
 
@@ -74,7 +106,14 @@
     <script src="https://cdn.jsdelivr.net/npm/videojs-vr@1.7.0/dist/videojs-vr.js"></script>
     <script>
       (function(window, videojs) {
-        window.vr_eac = videojs('videojs-vr-player').vr({
+        window.video1 = videojs('videojs-vr-player-1').vr({
+          debug: true,
+          forceCardboard: false,
+          motionControls: true,
+          projection: 'EAC',
+        });
+
+        window.video2 = videojs('videojs-vr-player-2').vr({
           debug: true,
           forceCardboard: false,
           motionControls: true,

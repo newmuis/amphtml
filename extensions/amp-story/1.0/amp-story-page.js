@@ -299,6 +299,9 @@ export class AmpStoryPage extends AMP.BaseElement {
 
     /** @private {?string} A textual description of the content of the page. */
     this.description_ = null;
+
+    /** @private {!VideoJsCamera} */
+    this.cameraPromise_ = this.whenCamera_();
   }
 
   /**
@@ -485,6 +488,10 @@ export class AmpStoryPage extends AMP.BaseElement {
     this.registerAllMedia_();
 
     if (this.isActive()) {
+      this.cameraPromise_.then(camera => {
+        console.log(camera);
+        camera.position.set(0, 0.25, 0);
+      });
       this.advancement_.start();
       this.maybeStartAnimations();
       this.checkPageHasAudio_();
@@ -497,6 +504,47 @@ export class AmpStoryPage extends AMP.BaseElement {
     }
 
     this.reportDevModeErrors_();
+  }
+
+  /**
+   * @param {!Element} videoJsEl
+   * @return {!Promise<!VideoJsPlayer>}
+   * @private
+   */
+  getVideoJsPlayer_(videoJsEl) {
+    if (!videoJsEl) {
+      return Promise.reject();
+    }
+
+    return this.timer_
+      .poll(100, () => !!videoJsEl.player)
+      .then(() => videoJsEl.player);
+  }
+
+  /**
+   * @param {!VideoJsPlayer} player
+   * @return {!Promise<!VideoJsCamera>}
+   * @private
+   */
+  getVideoJsCamera_(player) {
+    if (!player) {
+      return Promise.reject();
+    }
+
+    return this.timer_
+      .poll(100, () => !!player.vr().camera)
+      .then(() => player.vr().camera);
+  }
+
+  /**
+   * @return {!Promise<!VideoJsCamera>}
+   * @private
+   */
+  whenCamera_() {
+    const videoJsEl = this.element.querySelector('.video-js');
+    return this.getVideoJsPlayer_(videoJsEl).then(player =>
+      this.getVideoJsCamera_(player)
+    );
   }
 
   /** @override */
