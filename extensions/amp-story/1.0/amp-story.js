@@ -878,7 +878,9 @@ export class AmpStory extends AMP.BaseElement {
         return;
       }
 
-      this.ampStoryHint_.showNavigationOverlay();
+      if (!this.element.hasAttribute('hide-navigation-overlay')) {
+        this.ampStoryHint_.showNavigationOverlay();
+      }
     });
   }
 

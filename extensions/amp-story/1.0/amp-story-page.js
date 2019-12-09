@@ -86,6 +86,12 @@ import {upgradeBackgroundAudio} from './audio';
 const PAGE_LOADED_CLASS_NAME = 'i-amphtml-story-page-loaded';
 
 /**
+ * How long to wait in between polls of the DOM to see if videojs has finished
+ * instantiating.
+ */
+const VIDEO_JS_POLL_INTERVAL_MS = 100;
+
+/**
  * Selectors for media elements.
  * Only get the page media: direct children of amp-story-page (ie:
  * background-audio), or descendant of amp-story-grid-layer. That excludes media
@@ -299,9 +305,6 @@ export class AmpStoryPage extends AMP.BaseElement {
 
     /** @private {?string} A textual description of the content of the page. */
     this.description_ = null;
-
-    /** @private {!VideoJsCamera} */
-    this.cameraPromise_ = this.whenCamera_();
   }
 
   /**
@@ -488,7 +491,7 @@ export class AmpStoryPage extends AMP.BaseElement {
     this.registerAllMedia_();
 
     if (this.isActive()) {
-      this.cameraPromise_.then(camera => {
+      this.whenCamera_().then(camera => {
         console.log(camera);
         camera.position.set(0, 0.25, 0);
       });
@@ -517,7 +520,7 @@ export class AmpStoryPage extends AMP.BaseElement {
     }
 
     return this.timer_
-      .poll(100, () => !!videoJsEl.player)
+      .poll(VIDEO_JS_POLL_INTERVAL_MS, () => !!videoJsEl.player)
       .then(() => videoJsEl.player);
   }
 
@@ -532,7 +535,7 @@ export class AmpStoryPage extends AMP.BaseElement {
     }
 
     return this.timer_
-      .poll(100, () => !!player.vr().camera)
+      .poll(VIDEO_JS_POLL_INTERVAL_MS, () => !!player.vr().camera)
       .then(() => player.vr().camera);
   }
 
