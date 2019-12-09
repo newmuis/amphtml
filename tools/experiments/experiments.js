@@ -1,5 +1,5 @@
 /**
- * Copyright 2017 The AMP HTML Authors. All Rights Reserved.
+ * Copyright 2015 The AMP HTML Authors. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,651 +14,374 @@
  * limitations under the License.
  */
 
-import '../../src/polyfills';
-import '../../src/service/timer-impl';
-import {Deferred} from '../../src/utils/promise';
-import {EXPERIMENTS} from './experiments-config';
-import {SameSite, getCookie, setCookie} from '../../src/cookies';
-import {devAssert, initLogConstructor, setReportError} from '../../src/log';
-import {getMode} from '../../src/mode';
-import {isExperimentOn, toggleExperiment} from '../../src/experiments';
-import {listenOnce} from '../../src/event-helper';
-import {onDocumentReady} from '../../src/document-ready';
-import {parseUrlDeprecated} from '../../src/url';
-//TODO(@cramforce): For type. Replace with forward declaration.
-import {reportError} from '../../src/error';
+/**
+ * @fileoverview Experiments system allows a developer to opt-in to test
+ * features that are not yet fully tested.
+ *
+ * Experiments page: https://cdn.ampproject.org/experiments.html *
+ */
 
-initLogConstructor();
-setReportError(reportError);
+import {dev, user} from './log';
+import {getMode} from './mode';
+import {hasOwn} from './utils/object';
+import {parseQueryString} from './url';
 
-const COOKIE_MAX_AGE_DAYS = 180; // 6 month
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const COOKIE_MAX_AGE_MS = COOKIE_MAX_AGE_DAYS * MS_PER_DAY;
+/** @const {string} */
+const TAG = 'EXPERIMENTS';
+
+/** @const {string} */
+const LOCAL_STORAGE_KEY = 'amp-experiment-toggles';
+
+/** @const {string} */
+const TOGGLES_WINDOW_PROPERTY = '__AMP__EXPERIMENT_TOGGLES';
+
 /**
  * @typedef {{
- *   id: string,
- *   name: string,
- *   spec: string,
- *   cleanupIssue: string,
+ *   isTrafficEligible: function(!Window):boolean,
+ *   branches: !Array<string>
  * }}
  */
-let ExperimentDef;
+export let ExperimentInfo;
 
 /**
- * These experiments are special because they use a different mechanism that is
- * interpreted by the server to deliver a different version of the AMP
- * JS libraries.
- */
-const CANARY_EXPERIMENT_ID = 'dev-channel';
-const RC_EXPERIMENT_ID = 'rc-channel';
-
-/**
- * The different states of the AMP_CANARY cookie.
- */
-const AMP_CANARY_COOKIE = {
-  DISABLED: '0',
-  CANARY: '1',
-  RC: '2',
-};
-
-/** @const {!Array<!ExperimentDef>} */
-const CHANNELS = [
-  // Canary (Dev Channel)
-  {
-    id: CANARY_EXPERIMENT_ID,
-    name: 'AMP Dev Channel (more info)',
-    spec:
-      'https://github.com/ampproject/amphtml/blob/master/' +
-      'contributing/release-schedule.md#amp-dev-channel',
-  },
-  // Release Candidate (RC Channel)
-  {
-    id: RC_EXPERIMENT_ID,
-    name: 'AMP RC Channel (more info)',
-    spec:
-      'https://github.com/ampproject/amphtml/blob/master/' +
-      'contributing/release-schedule.md#amp-release-candidate-rc-channel',
-  },
-];
-
-/** @const {!Array<!ExperimentDef>} */
-const EXPERIMENTS = [
-  {
-    id: 'alp',
-    name: 'Activates support for measuring incoming clicks.',
-    spec: 'https://github.com/ampproject/amphtml/issues/2934',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/4005',
-  },
-  {
-    id: 'amp-access-iframe',
-    name: 'AMP Access iframe prototype (launched)',
-    spec: 'https://github.com/ampproject/amphtml/issues/13287',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/13287',
-  },
-  {
-    id: 'amp-access-server',
-    name: 'AMP Access server side prototype',
-    spec: '',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/4000',
-  },
-  {
-    id: 'amp-access-jwt',
-    name: 'AMP Access JWT prototype',
-    spec: '',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/4000',
-  },
-  {
-    id: 'amp-base-carousel',
-    name: 'AMP extension for a basic, flexible, carousel',
-    spec: 'https://github.com/ampproject/amphtml/issues/20595',
-  },
-  {
-    id: 'amp-google-vrview-image',
-    name: 'AMP VR Viewer for images via Google VRView',
-    spec:
-      'https://github.com/ampproject/amphtml/blob/master/extensions/' +
-      'amp-google-vrview-image/amp-google-vrview-image.md',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/3996',
-  },
-  {
-    id: 'amp-sidebar-v2',
-    name: 'Updated sidebar component with nested menu and animations',
-  },
-  {
-    id: 'ampdoc-fie',
-    name: 'Install AmpDoc on FIE level',
-    spec: 'https://github.com/ampproject/amphtml/issues/22734',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/22733',
-  },
-  {
-    id: 'no-auth-in-prerender',
-    name: 'Delay amp-access auth request until doc becomes visible.',
-    spec: '',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/3824',
-  },
-  {
-    id: 'amp-share-tracking',
-    name: 'AMP Share Tracking',
-    spec: 'https://github.com/ampproject/amphtml/issues/3135',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/5167',
-  },
-  {
-    id: 'amp-viz-vega',
-    name: 'AMP Visualization using Vega grammar',
-    spec: 'https://github.com/ampproject/amphtml/issues/3991',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/4171',
-  },
-  {
-    id: 'cache-service-worker',
-    name: 'AMP Cache Service Worker',
-    spec: 'https://github.com/ampproject/amphtml/issues/1199',
-  },
-  {
-    id: 'amp-lightbox-a4a-proto',
-    name: 'Allows the new lightbox experience to be used in A4A (prototype).',
-    spec: 'https://github.com/ampproject/amphtml/issues/7743',
-  },
-  {
-    id: 'amp-playbuzz',
-    name: 'AMP extension for playbuzz items (launched)',
-    spec: 'https://github.com/ampproject/amphtml/issues/6106',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/pull/6351',
-  },
-  {
-    id: 'amp-action-macro',
-    name: 'AMP extension for defining action macros',
-    spec: 'https://github.com/ampproject/amphtml/issues/19494',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/pull/19495',
-  },
-  {
-    id: 'ios-fixed-no-transfer',
-    name: 'Remove fixed transfer from iOS 12.2 and up',
-    spec: 'https://github.com/ampproject/amphtml/issues/22220',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/22220',
-  },
-  {
-    id: 'ios-scrollable-iframe',
-    name: 'iOS 13 enables iframe scrolling per spec',
-    spec: 'https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/23379',
-  },
-  {
-    id: 'chunked-amp',
-    name: "Split AMP's loading phase into chunks",
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/5535',
-  },
-  {
-    id: 'pump-early-frame',
-    name:
-      'If applicable, let the browser paint the current frame before ' +
-      'executing the callback.',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/8237',
-  },
-  {
-    id: 'version-locking',
-    name:
-      'Force all extensions to have the same release ' +
-      'as the main JS binary',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/8236',
-  },
-  {
-    id: 'web-worker',
-    name: 'Web worker for background processing',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/7156',
-  },
-  {
-    id: 'jank-meter',
-    name: 'Display jank meter',
-  },
-  {
-    id: 'as-use-attr-for-format',
-    name: 'Use slot width/height attribute for AdSense size format',
-  },
-  {
-    id: 'input-debounced',
-    name: 'A debounced input event for AMP actions',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/9413',
-    spec: 'https://github.com/ampproject/amphtml/issues/9277',
-  },
-  {
-    id: 'disable-rtc',
-    name: 'Disable AMP RTC',
-    spec: 'https://github.com/ampproject/amphtml/issues/8551',
-  },
-  {
-    id: 'inabox-position-api',
-    name: 'Position API for foreign iframe',
-    spec: 'https://github.com/ampproject/amphtml/issues/10995',
-  },
-  {
-    id: 'amp-story',
-    name: 'Visual storytelling in AMP (v0.1)',
-    spec: 'https://github.com/ampproject/amphtml/issues/11329',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/14357',
-  },
-  {
-    id: 'disable-amp-story-default-media',
-    name: 'Removes default media for amp-story',
-    spec: 'https://github.com/ampproject/amphtml/issues/14535',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/14535',
-  },
-  {
-    id: 'amp-story-responsive-units',
-    name: 'Scale pages in amp-story by rewriting responsive units',
-    spec: 'https://github.com/ampproject/amphtml/issues/15955',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/15960',
-  },
-  {
-    id: 'amp-story-parallax',
-    name: 'Adds a 3D parallax effect (tilt or mouse controlled) to AMP Stories',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/24718',
-  },
-  {
-    id: 'amp-next-page',
-    name: 'Document level next page recommendations and infinite scroll',
-    spec: 'https://github.com/ampproject/amphtml/issues/12945',
-  },
-  {
-    id: 'amp-story-branching',
-    name: 'Allow for the go to action, advance to, and fragment parameter URLs',
-    spec: 'https://github.com/ampproject/amphtml/issues/20083',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/20128',
-  },
-  {
-    id: 'iframe-messaging',
-    name: 'Enables "postMessage" action on amp-iframe.',
-    spec: 'https://github.com/ampproject/amphtml/issues/9074',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/14263',
-  },
-  {
-    id: 'blurry-placeholder',
-    name: 'Enables a blurred image placeholder as an amp-img loads',
-    spec: 'https://github.com/ampproject/amphtml/issues/15146',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/17107',
-  },
-  {
-    id: 'amp-carousel-chrome-scroll-snap',
-    name: 'Enables scroll snap on carousel on Chrome browsers',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/16508',
-  },
-  {
-    id: 'chrome-animation-worklet',
-    name: 'Opts-in users into using AnimationWorklet',
-    cleanupIssue: 'X',
-  },
-  {
-    id: 'amp-consent-v2',
-    name: 'Enables CMP support to amp-consent component',
-    spec: 'https://github.com/ampproject/amphtml/issues/17742',
-  },
-  {
-    id: 'video-dock',
-    name: 'Enables <amp-video dock>',
-    spec: 'https://github.com/ampproject/amphtml/issues/14061',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/17161',
-  },
-  {
-    id: 'amp-list-load-more',
-    name: 'Enables load-more related functionality in amp-list',
-    spec: 'https://github.com/ampproject/amphtml/issues/13575',
-  },
-  {
-    id: 'hidden-mutation-observer',
-    name: "Enables FixedLayer's hidden-attribute mutation observer",
-    spec: 'https://github.com/ampproject/amphtml/issues/17475',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/18897',
-  },
-  {
-    id: 'inabox-viewport-friendly',
-    name:
-      'Inabox viewport measures the host window directly if ' +
-      'within friendly iframe',
-    spec: 'https://github.com/ampproject/amphtml/issues/19869',
-    cleanupIssue: 'TODO',
-  },
-  {
-    id: 'fie-css-cleanup',
-    name:
-      'Experiment to prevent regression after a major CSS clean up' +
-      ' for AMPHTML Ads in FIE rendering mode',
-    spec: 'https://github.com/ampproject/amphtml/issues/22418',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/22418',
-  },
-  {
-    id: 'amp-user-location',
-    name:
-      'Expose the browser geolocation API for latitude and longitude ' +
-      'access after user interaction and approval',
-    spec: 'https://github.com/ampproject/amphtml/issues/8929',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/22177',
-  },
-  {
-    id: 'untrusted-xhr-interception',
-    name:
-      'Enable "xhrInterceptor" capability for untrusted viewers. ' +
-      'For development use only',
-    spec: 'N/A',
-    cleanupIssue: 'N/A',
-  },
-  {
-    id: 'macro-after-long-task',
-    name:
-      'If applicable, convert remaining micro tasks to the next macro ' +
-      ' tasks if a previous micro task execution took too long',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/23464',
-  },
-  {
-    id: 'pausable-iframe',
-    name: 'Use iframe freezing instead of recreating iframes.',
-    spec: 'https://github.com/ampproject/amphtml/issues/24110',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/24113',
-  },
-  {
-    id: 'adsense-ad-size-optimization',
-    name:
-      'Per publisher server side settings for changing the ad size ' +
-      'to responsive.',
-    spec: 'https://github.com/ampproject/amphtml/issues/23568',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/24165',
-  },
-  {
-    id: 'fix-inconsistent-responsive-height-selection',
-    name: 'Fix inconsistent responsive height selection.',
-    spec: 'https://github.com/ampproject/amphtml/issues/24166',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/24167',
-  },
-  {
-    id: 'use-responsive-ads-for-responsive-sizing-in-auto-ads',
-    name: 'Use amp-ad responsive to make amp auto ads responsive.',
-    spec: 'https://github.com/ampproject/amphtml/issues/24168',
-    cleanupIssue: 'https://github.com/ampproject/amphtml/issues/24169',
-  },
-];
-
-if (getMode().localDev) {
-  EXPERIMENTS.forEach(experiment => {
-    devAssert(
-      experiment.cleanupIssue,
-      `experiment ${experiment.name} must have a \`cleanupIssue\` field.`
-    );
-  });
-}
-
-/**
- * Builds the expriments tbale.
- */
-function build() {
-  const {host} = window.location;
-
-  const subdomain = document.getElementById('subdomain');
-  subdomain.textContent = host;
-
-  // #redirect contains UI that generates a subdomain experiments page link
-  // given a "google.com/amp/..." viewer URL.
-  const redirect = document.getElementById('redirect');
-  const input = redirect.querySelector('input');
-  const button = redirect.querySelector('button');
-  const anchor = redirect.querySelector('a');
-  button.addEventListener('click', function() {
-    let urlString = input.value.trim();
-    // Avoid protocol-less urlString from being parsed as a relative URL.
-    const hasProtocol = /^https?:\/\//.test(urlString);
-    if (!hasProtocol) {
-      urlString = 'https://' + urlString;
-    }
-    const url = parseUrlDeprecated(urlString);
-    if (url) {
-      const subdomain = url.hostname.replace(/\./g, '-');
-      const href = `https://${subdomain}.cdn.ampproject.org/experiments.html`;
-      anchor.href = href;
-      anchor.textContent = href;
-    }
-  });
-
-  const channelsTable = document.getElementById('channels-table');
-  CHANNELS.forEach(function(experiment) {
-    channelsTable.appendChild(buildExperimentRow(experiment));
-  });
-
-  const experimentsTable = document.getElementById('experiments-table');
-  EXPERIMENTS.forEach(function(experiment) {
-    experimentsTable.appendChild(buildExperimentRow(experiment));
-  });
-
-  if (host === 'cdn.ampproject.org') {
-    const experimentsDesc = document.getElementById('experiments-desc');
-    experimentsDesc.setAttribute('hidden', '');
-    experimentsTable.setAttribute('hidden', '');
-  } else {
-    redirect.setAttribute('hidden', '');
-  }
-}
-
-/**
- * Builds one row in the channel or experiments table.
- * @param {!ExperimentDef} experiment
- * @return {*} TODO(#23582): Specify return type
- */
-function buildExperimentRow(experiment) {
-  const tr = document.createElement('tr');
-  tr.id = 'exp-tr-' + experiment.id;
-
-  const tdId = document.createElement('td');
-  tdId.appendChild(buildLinkMaybe(experiment.id, experiment.spec));
-  tr.appendChild(tdId);
-
-  const tdName = document.createElement('td');
-  tdName.appendChild(buildLinkMaybe(experiment.name, experiment.spec));
-  tr.appendChild(tdName);
-
-  const tdOn = document.createElement('td');
-  tdOn.classList.add('button-cell');
-  tr.appendChild(tdOn);
-
-  const button = document.createElement('button');
-  tdOn.appendChild(button);
-
-  const buttonOn = document.createElement('div');
-  buttonOn.classList.add('on');
-  buttonOn.textContent = 'On';
-  button.appendChild(buttonOn);
-
-  const buttonDefault = document.createElement('div');
-  buttonDefault.classList.add('default');
-  buttonDefault.textContent = 'Default on';
-  button.appendChild(buttonDefault);
-
-  const buttonOff = document.createElement('div');
-  buttonOff.classList.add('off');
-  buttonOff.textContent = 'Off';
-  button.appendChild(buttonOff);
-
-  button.addEventListener(
-    'click',
-    toggleExperiment_.bind(null, experiment.id, experiment.name, undefined)
-  );
-
-  return tr;
-}
-
-/**
- * If link is available, builds the anchor. Otherwise, it'd return a basic span.
- * @param {string} text
- * @param {?string} link
- * @return {!Element}
- */
-function buildLinkMaybe(text, link) {
-  let element;
-  if (link) {
-    element = document.createElement('a');
-    element.setAttribute('href', link);
-    element.setAttribute('target', '_blank');
-  } else {
-    element = document.createElement('span');
-  }
-  element.textContent = text;
-  return element;
-}
-
-/**
- * Updates states of all experiments in the table.
- */
-function update() {
-  CHANNELS.concat(EXPERIMENTS).forEach(function(experiment) {
-    updateExperimentRow(experiment);
-  });
-}
-
-/**
- * Updates the state of a single experiment.
- * @param {!ExperimentDef} experiment
- */
-function updateExperimentRow(experiment) {
-  const tr = document.getElementById('exp-tr-' + experiment.id);
-  if (!tr) {
-    return;
-  }
-  let state = isExperimentOn_(experiment.id) ? 1 : 0;
-  if (self.AMP_CONFIG[experiment.id]) {
-    state = 'default';
-  }
-  tr.setAttribute('data-on', state);
-}
-
-/**
- * Returns whether the experiment is on or off.
- * @param {string} id
+ * Whether we are in canary.
+ * @param {!Window} win
  * @return {boolean}
  */
-function isExperimentOn_(id) {
-  if (id == CANARY_EXPERIMENT_ID) {
-    return getCookie(window, 'AMP_CANARY') == AMP_CANARY_COOKIE.CANARY;
-  } else if (id == RC_EXPERIMENT_ID) {
-    return getCookie(window, 'AMP_CANARY') == AMP_CANARY_COOKIE.RC;
-  }
-  return isExperimentOn(window, /*OK*/ id);
+export function isCanary(win) {
+  return !!(win.AMP_CONFIG && win.AMP_CONFIG.canary);
 }
 
 /**
- * Opts in to / out of the "canary" or "rc" runtime types by setting the
- * AMP_CANARY cookie.
- * @param {string} cookieState One of AMP_CANARY_COOKIE.{DISABLED|CANARY|RC}
+ * Returns binary type, e.g., canary, production, control, or rc.
+ * @param {!Window} win
+ * @return {string}
  */
-function setAmpCanaryCookie_(cookieState) {
-  const validUntil =
-    cookieState != AMP_CANARY_COOKIE.DISABLED
-      ? Date.now() + COOKIE_MAX_AGE_MS
-      : 0;
-  const cookieOptions = {
-    // Set explicit domain, so the cookie gets sent to sub domains.
-    domain: location.hostname,
-    allowOnProxyOrigin: true,
-    // Make sure the cookie is available for the script loads coming from
-    // other domains. Chrome's default of LAX would otherwise prevent it
-    // from being sent.
-    sameSite: SameSite.NONE,
-    secure: true,
-  };
-  setCookie(window, 'AMP_CANARY', cookieState, validUntil, cookieOptions);
-  // Reflect default experiment state.
-  self.location.reload();
+export function getBinaryType(win) {
+  return win.AMP_CONFIG && win.AMP_CONFIG.type
+    ? win.AMP_CONFIG.type
+    : 'unknown';
 }
 
 /**
- * Toggles the experiment.
- * @param {string} id
- * @param {string} name
+ * Whether the specified experiment is on or off.
+ * @param {!Window} win
+ * @param {string} experimentId
+ * @return {boolean}
+ */
+export function isExperimentOn(win, experimentId) {
+  const toggles = experimentToggles(win);
+  return !!toggles[experimentId];
+}
+
+/**
+ * Toggles the experiment on or off. Returns the actual value of the experiment
+ * after toggling is done.
+ * @param {!Window} win
+ * @param {string} experimentId
  * @param {boolean=} opt_on
+ * @param {boolean=} opt_transientExperiment  Whether to toggle the
+ *     experiment state "transiently" (i.e., for this page load only) or
+ *     durably (by saving the experiment IDs after toggling).
+ *     Default: false (save durably).
+ * @return {boolean} New state for experimentId.
  */
-function toggleExperiment_(id, name, opt_on) {
-  const currentlyOn = isExperimentOn_(id);
-  const on = opt_on === undefined ? !currentlyOn : opt_on;
-  // Protect against click jacking.
-  const confirmMessage = on
-    ? 'Do you really want to activate the AMP experiment'
-    : 'Do you really want to deactivate the AMP experiment';
+export function toggleExperiment(
+  win,
+  experimentId,
+  opt_on,
+  opt_transientExperiment
+) {
+  const currentlyOn = isExperimentOn(win, /*OK*/ experimentId);
+  const on = !!(opt_on !== undefined ? opt_on : !currentlyOn);
+  if (on != currentlyOn) {
+    const toggles = experimentToggles(win);
+    toggles[experimentId] = on;
 
-  showConfirmation_(`${confirmMessage}: "${name}"`, () => {
-    if (id == CANARY_EXPERIMENT_ID) {
-      setAmpCanaryCookie_(
-        on ? AMP_CANARY_COOKIE.CANARY : AMP_CANARY_COOKIE.DISABLED
-      );
-    } else if (id == RC_EXPERIMENT_ID) {
-      setAmpCanaryCookie_(
-        on ? AMP_CANARY_COOKIE.RC : AMP_CANARY_COOKIE.DISABLED
-      );
-    } else {
-      toggleExperiment(window, id, on);
-    }
-    update();
-  });
-}
-
-/**
- * Shows confirmation and calls callback if it's approved.
- * @param {string} message
- * @param {function()} callback
- */
-function showConfirmation_(message, callback) {
-  const container = devAssert(document.getElementById('popup-container'));
-  const messageElement = devAssert(document.getElementById('popup-message'));
-  const confirmButton = devAssert(document.getElementById('popup-button-ok'));
-  const cancelButton = devAssert(
-    document.getElementById('popup-button-cancel')
-  );
-  const unlistenSet = [];
-  const closePopup = affirmative => {
-    container.classList.remove('show');
-    unlistenSet.forEach(unlisten => unlisten());
-    if (affirmative) {
-      callback();
-    }
-  };
-
-  messageElement.textContent = message;
-  unlistenSet.push(listenOnce(confirmButton, 'click', () => closePopup(true)));
-  unlistenSet.push(listenOnce(cancelButton, 'click', () => closePopup(false)));
-  container.classList.add('show');
-}
-
-/**
- * Loads the AMP_CONFIG objects from whatever the v0.js is that the
- * user has (depends on whether they opted into canary or RC), so that
- * experiment state can reflect the default activated experiments.
- * @return {*} TODO(#23582): Specify return type
- */
-function getAmpConfig() {
-  const deferred = new Deferred();
-  const {promise, resolve, reject} = deferred;
-  const xhr = new XMLHttpRequest();
-  xhr.addEventListener('load', () => {
-    resolve(xhr.responseText);
-  });
-  xhr.addEventListener('error', () => {
-    reject(new Error(xhr.statusText));
-  });
-  // Cache bust, so we immediately reflect AMP_CANARY cookie changes.
-  xhr.open('GET', '/v0.js?' + Math.random(), true);
-  xhr.send(null);
-  return promise
-    .then(text => {
-      const match = text.match(/self\.AMP_CONFIG=([^;]+)/);
-      if (!match) {
-        throw new Error("Can't find AMP_CONFIG in: " + text);
+    if (!opt_transientExperiment) {
+      const storedToggles = getExperimentToggles(win);
+      storedToggles[experimentId] = on;
+      saveExperimentToggles(win, storedToggles);
+      // Avoid affecting tests that spy/stub warn().
+      if (!getMode().test) {
+        user().warn(
+          TAG,
+          '"%s" experiment %s for the domain "%s". See: https://amp.dev/documentation/guides-and-tutorials/learn/experimental',
+          experimentId,
+          on ? 'enabled' : 'disabled',
+          win.location.hostname
+        );
       }
-      // Setting global var to make standard experiment code just work.
-      return (self.AMP_CONFIG = JSON.parse(match[1]));
-    })
-    .catch(error => {
-      console./*OK*/ error('Error fetching AMP_CONFIG', error);
-      return {};
-    });
+    }
+  }
+  return on;
 }
 
-// Start up.
-getAmpConfig().then(() => {
-  onDocumentReady(document, () => {
-    build();
-    update();
-  });
-});
+/**
+ * Calculate whether the experiment is on or off based off of its default value,
+ * stored overriden value, or the global config frequency given.
+ * @param {!Window} win
+ * @return {!Object<string, boolean>}
+ */
+export function experimentToggles(win) {
+  if (win[TOGGLES_WINDOW_PROPERTY]) {
+    return win[TOGGLES_WINDOW_PROPERTY];
+  }
+  win[TOGGLES_WINDOW_PROPERTY] = Object.create(null);
+  const toggles = win[TOGGLES_WINDOW_PROPERTY];
+
+  // Read the default config of this build.
+  if (win.AMP_CONFIG) {
+    for (const experimentId in win.AMP_CONFIG) {
+      const frequency = win.AMP_CONFIG[experimentId];
+      if (typeof frequency === 'number' && frequency >= 0 && frequency <= 1) {
+        toggles[experimentId] = Math.random() < frequency;
+      }
+    }
+  }
+  // Read document level override from meta tag.
+  if (
+    win.AMP_CONFIG &&
+    Array.isArray(win.AMP_CONFIG['allow-doc-opt-in']) &&
+    win.AMP_CONFIG['allow-doc-opt-in'].length > 0
+  ) {
+    const allowed = win.AMP_CONFIG['allow-doc-opt-in'];
+    const meta = win.document.head.querySelector(
+      'meta[name="amp-experiments-opt-in"]'
+    );
+    if (meta) {
+      const optedInExperiments = meta.getAttribute('content').split(',');
+      for (let i = 0; i < optedInExperiments.length; i++) {
+        if (allowed.indexOf(optedInExperiments[i]) != -1) {
+          toggles[optedInExperiments[i]] = true;
+        }
+      }
+    }
+  }
+
+  Object.assign(toggles, getExperimentToggles(win));
+
+  if (
+    win.AMP_CONFIG &&
+    Array.isArray(win.AMP_CONFIG['allow-url-opt-in']) &&
+    win.AMP_CONFIG['allow-url-opt-in'].length > 0
+  ) {
+    const allowed = win.AMP_CONFIG['allow-url-opt-in'];
+    const hash = win.location.originalHash || win.location.hash;
+    const params = parseQueryString(hash);
+    for (let i = 0; i < allowed.length; i++) {
+      const param = params[`e-${allowed[i]}`];
+      if (param == '1') {
+        toggles[allowed[i]] = true;
+      }
+      if (param == '0') {
+        toggles[allowed[i]] = false;
+      }
+    }
+  }
+  return toggles;
+}
+
+/**
+ * Returns the cached experiments toggles, or null if they have not been
+ * computed yet.
+ * @param {!Window} win
+ * @return {Object<string, boolean>}
+ */
+export function experimentTogglesOrNull(win) {
+  return win[TOGGLES_WINDOW_PROPERTY] || null;
+}
+
+/**
+ * Returns a set of experiment IDs currently on.
+ * @param {!Window} win
+ * @return {!Object<string, boolean>}
+ */
+function getExperimentToggles(win) {
+  let experimentsString = '';
+  try {
+    if ('localStorage' in win) {
+      experimentsString = win.localStorage.getItem(LOCAL_STORAGE_KEY);
+    }
+  } catch (e) {
+    dev().warn(TAG, 'Failed to retrieve experiments from localStorage.');
+  }
+  const tokens = experimentsString ? experimentsString.split(/\s*,\s*/g) : [];
+
+  const toggles = Object.create(null);
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].length == 0) {
+      continue;
+    }
+    if (tokens[i][0] == '-') {
+      toggles[tokens[i].substr(1)] = false;
+    } else {
+      toggles[tokens[i]] = true;
+    }
+  }
+  return toggles;
+}
+
+/**
+ * Saves a set of experiment IDs currently on.
+ * @param {!Window} win
+ * @param {!Object<string, boolean>} toggles
+ */
+function saveExperimentToggles(win, toggles) {
+  const experimentIds = [];
+  for (const experiment in toggles) {
+    experimentIds.push((toggles[experiment] === false ? '-' : '') + experiment);
+  }
+  try {
+    if ('localStorage' in win) {
+      win.localStorage.setItem(LOCAL_STORAGE_KEY, experimentIds.join(','));
+    }
+  } catch (e) {
+    user().error(TAG, 'Failed to save experiments to localStorage.');
+  }
+}
+
+/**
+ * See getExperimentToggles().
+ * @param {!Window} win
+ * @return {!Object<string, boolean>}
+ * @visibleForTesting
+ */
+export function getExperimentTogglesForTesting(win) {
+  return getExperimentToggles(win);
+}
+
+/**
+ * Resets the experimentsToggle cache for testing purposes.
+ * @param {!Window} win
+ * @visibleForTesting
+ */
+export function resetExperimentTogglesForTesting(win) {
+  saveExperimentToggles(win, {});
+  win[TOGGLES_WINDOW_PROPERTY] = null;
+}
+
+/**
+ * In some browser implementations of Math.random(), sequential calls of
+ * Math.random() are correlated and can cause a bias.  In particular,
+ * if the previous random() call was < 0.001 (as it will be if we select
+ * into an experiment), the next value could be less than 0.5 more than
+ * 50.7% of the time.  This provides an implementation that roots down into
+ * the crypto API, when available, to produce less biased samples.
+ *
+ * @return {number} Pseudo-random floating-point value on the range [0, 1).
+ */
+function slowButAccuratePrng() {
+  // TODO(tdrl): Implement.
+  return Math.random();
+}
+
+/**
+ * Container for alternate random number generator implementations.  This
+ * allows us to set an "accurate" PRNG for branch selection, but to mock it
+ * out easily in tests.
+ *
+ * @visibleForTesting
+ * @const {!{accuratePrng: function():number}}
+ */
+export const RANDOM_NUMBER_GENERATORS = {
+  accuratePrng: slowButAccuratePrng,
+};
+
+/**
+ * Selects, uniformly at random, a single item from the array.
+ * @param {!Array<string>} arr Object to select from.
+ * @return {?string} Single item from arr or null if arr was empty.
+ */
+function selectRandomItem(arr) {
+  const rn = RANDOM_NUMBER_GENERATORS.accuratePrng();
+  return arr[Math.floor(rn * arr.length)] || null;
+}
+
+/**
+ * Selects which page-level experiment branches are enabled. If a given
+ * experiment name is already set (including to the null / no branches selected
+ * state), this won't alter its state.
+ *
+ * Check whether a given experiment is set using isExperimentOn(win,
+ * experimentName) and, if it is on, look for which branch is selected in
+ * win.__AMP_EXPERIMENT_BRANCHES[experimentName].
+ *
+ * @param {!Window} win Window context on which to save experiment
+ *     selection state.
+ * @param {!Object<string, !ExperimentInfo>} experiments  Set of experiments to
+ *     configure for this page load.
+ * @return {!Object<string, string>} Map of experiment names to selected
+ *     branches.
+ */
+export function randomlySelectUnsetExperiments(win, experiments) {
+  win.__AMP_EXPERIMENT_BRANCHES = win.__AMP_EXPERIMENT_BRANCHES || {};
+  const selectedExperiments = {};
+  for (const experimentName in experiments) {
+    // Skip experimentName if it is not a key of experiments object or if it
+    // has already been populated by some other property.
+    if (!hasOwn(experiments, experimentName)) {
+      continue;
+    }
+    if (hasOwn(win.__AMP_EXPERIMENT_BRANCHES, experimentName)) {
+      selectedExperiments[experimentName] =
+        win.__AMP_EXPERIMENT_BRANCHES[experimentName];
+      continue;
+    }
+
+    if (
+      !experiments[experimentName].isTrafficEligible ||
+      !experiments[experimentName].isTrafficEligible(win)
+    ) {
+      win.__AMP_EXPERIMENT_BRANCHES[experimentName] = null;
+      continue;
+    }
+
+    // If we're in the experiment, but we haven't already forced a specific
+    // experiment branch (e.g., via a test setup), then randomize the branch
+    // choice.
+    if (
+      !win.__AMP_EXPERIMENT_BRANCHES[experimentName] &&
+      isExperimentOn(win, /*OK*/ experimentName)
+    ) {
+      const {branches} = experiments[experimentName];
+      win.__AMP_EXPERIMENT_BRANCHES[experimentName] = selectRandomItem(
+        branches
+      );
+      selectedExperiments[experimentName] =
+        win.__AMP_EXPERIMENT_BRANCHES[experimentName];
+    }
+  }
+  return selectedExperiments;
+}
+
+/**
+ * Returns the experiment branch enabled for the given experiment ID.
+ * For example, 'control' or 'experiment'.
+ *
+ * @param {!Window} win Window context to check for experiment state.
+ * @param {string} experimentName Name of the experiment to check.
+ * @return {?string} Active experiment branch ID for experimentName (possibly
+ *     null if experimentName has been tested but no branch was enabled).
+ */
+export function getExperimentBranch(win, experimentName) {
+  return win.__AMP_EXPERIMENT_BRANCHES
+    ? win.__AMP_EXPERIMENT_BRANCHES[experimentName]
+    : null;
+}
+
+/**
+ * Force enable (or disable) a specific branch of a given experiment name.
+ * Disables the experiment name altogether if branchId is falseish.
+ *
+ * @param {!Window} win Window context to check for experiment state.
+ * @param {string} experimentName Name of the experiment to check.
+ * @param {?string} branchId ID of branch to force or null to disable
+ *     altogether.
+ * @visibleForTesting
+ */
+export function forceExperimentBranch(win, experimentName, branchId) {
+  win.__AMP_EXPERIMENT_BRANCHES = win.__AMP_EXPERIMENT_BRANCHES || {};
+  toggleExperiment(win, experimentName, !!branchId, true);
+  win.__AMP_EXPERIMENT_BRANCHES[experimentName] = branchId;
+}
