@@ -455,12 +455,13 @@ export class DraggableDrawer extends AMP.BaseElement {
       }
 
       this.element.classList.add('i-amphtml-story-draggable-drawer-open');
-      toggle(dev().assertElement(this.containerEl_), true);
-    }).then(() => {
-      const owners = Services.ownersForDoc(this.element);
-      owners.scheduleLayout(this.element, this.ampComponents_);
-      owners.scheduleResume(this.element, this.ampComponents_);
-      owners.updateInViewport(this.element, this.ampComponents_, true);
+      setTimeout(() => {
+        toggle(dev().assertElement(this.containerEl_), true);
+        const owners = Services.ownersForDoc(this.element);
+        owners.scheduleLayout(this.element, this.ampComponents_);
+        owners.scheduleResume(this.element, this.ampComponents_);
+        owners.updateInViewport(this.element, this.ampComponents_, true);
+      }, 300);
     });
   }
 
