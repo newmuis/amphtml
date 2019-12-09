@@ -1,0 +1,16 @@
+{
+  "name": "A Story about Stories",
+  "short_name": "Stories",
+  "icons": [
+    {
+      "src": "./test-amp-pwa-logo.png",
+      "type": "image/png",
+      "sizes": "900x900"
+    }
+  ],
+  "start_url": "./test-amp-pwa.html",
+  "scope": "/",
+  "display": "fullscreen",
+  "background_color": "#202125",
+  "theme_color": "#0d00e1"
+}
