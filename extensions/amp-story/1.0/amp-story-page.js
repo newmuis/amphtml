@@ -491,10 +491,13 @@ export class AmpStoryPage extends AMP.BaseElement {
     this.registerAllMedia_();
 
     if (this.isActive()) {
-      this.whenCamera_().then(camera => {
-        console.log(camera);
-        camera.position.set(0, 0.25, 0);
-      });
+      this.whenCamera_().then(
+        camera => {
+          console.log(camera);
+          camera.position.set(0, 0.25, 0);
+        },
+        err => {}
+      );
       this.advancement_.start();
       this.maybeStartAnimations();
       this.checkPageHasAudio_();
