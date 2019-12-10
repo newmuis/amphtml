@@ -462,7 +462,7 @@ export class AmpStoryStoreService {
     // properties, so we have to force the type.
     return /** @type {!State} */ ({
       [StateProperty.CAN_INSERT_AUTOMATIC_AD]: true,
-      [StateProperty.CAN_SHOW_BOOKEND]: true,
+      [StateProperty.CAN_SHOW_BOOKEND]: false,
       [StateProperty.CAN_SHOW_NAVIGATION_OVERLAY_HINT]: true,
       [StateProperty.CAN_SHOW_PREVIOUS_PAGE_HELP]: true,
       [StateProperty.CAN_SHOW_SHARING_UIS]: true,
