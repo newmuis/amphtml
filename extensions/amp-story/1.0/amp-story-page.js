@@ -76,7 +76,7 @@ import {getParallaxService} from './amp-story-parallax-service';
 import {htmlFor} from '../../../src/static-template';
 import {isExperimentOn} from '../../../src/experiments';
 import {isMediaDisplayed, setTextBackgroundColor} from './utils';
-import {toggle} from '../../../src/style';
+import {setStyle, toggle} from '../../../src/style';
 import {upgradeBackgroundAudio} from './audio';
 
 /**
@@ -305,6 +305,15 @@ export class AmpStoryPage extends AMP.BaseElement {
 
     /** @private {?string} A textual description of the content of the page. */
     this.description_ = null;
+
+    /** @private {?number} Rotation of phone from origin */
+    this.rotation_ = null;
+
+    /** @private {?function()} */
+    this.rotationListener_ = null;
+
+    /** @private {?Element} */
+    this.badgeEl_ = null;
   }
 
   /**
@@ -335,6 +344,8 @@ export class AmpStoryPage extends AMP.BaseElement {
 
   /** @override */
   buildCallback() {
+    this.badgeEl_ = this.element.querySelector('.badge-360');
+
     this.delegateVideoAutoplay();
     this.markMediaElementsWithPreload_();
     this.initializeMediaPool_();
@@ -462,6 +473,7 @@ export class AmpStoryPage extends AMP.BaseElement {
 
     this.stopMeasuringVideoPerformance_();
     this.stopListeningToVideoEvents_();
+    this.stopListeningForRotation_();
     this.toggleErrorMessage_(false);
     this.togglePlayMessage_(false);
     this.playAudioElementFromTimestamp_ = null;
@@ -495,6 +507,7 @@ export class AmpStoryPage extends AMP.BaseElement {
         camera => {
           console.log(camera);
           camera.position.set(0, 0.25, 0);
+          this.rotation_ = 0;
         },
         err => {}
       );
@@ -507,9 +520,32 @@ export class AmpStoryPage extends AMP.BaseElement {
       this.preloadAllMedia_()
         .then(() => this.startListeningToVideoEvents_())
         .then(() => this.playAllMedia_());
+      this.startListeningForRotation_();
     }
 
     this.reportDevModeErrors_();
+  }
+
+  /**
+   * @private
+   */
+  startListeningForRotation_() {
+    this.rotationListener_ = () => {
+      this.whenCamera_().then(camera => {
+        this.rotation_ = -camera.rotation._y;
+        setStyle(this.badgeEl_, 'transform', `rotate(${this.rotation_}rad)`);
+      });
+    };
+
+    this.win.addEventListener('deviceorientation', this.rotationListener_);
+  }
+
+  /**
+   *
+   */
+  stopListeningForRotation_() {
+    this.win.removeEventListener('deviceorientation', this.rotationListener_);
+    this.rotationListener_ = null;
   }
 
   /**
