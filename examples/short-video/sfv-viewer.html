@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Short Video Viewer</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #202125;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      main {
+        background: #757575;
+        position: relative;
+        width: 50.625vh;
+        height: 90vh;
+        box-shadow: 2px 2px 20px rgba(0, 0, 0, 0.5);
+        border-radius: 2vh;
+        overflow: hidden;
+      }
+
+      #players,
+      #players > *,
+      #docFrame {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #players { z-index: 1; }
+      #docFrame {
+        border: 0;
+        z-index: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      const POST_MESSAGE_ORIGIN = '*';
+      const MessageName = {
+        'CHANNEL_OPEN': 'channelOpen',
+        'HOIST_VIDEO': 'hoistVideo',
+      };
+
+      // TODO: Cache player instances.
+      const Players = {};
+
+      function hoistVideo(data) {
+        console.log('Hoisting video', data);
+
+        if (data.type !== 'youtube') {
+          sendMessage({ success: false });
+          throw new Error('Unknown video type ' + data.type);
+        }
+
+        const ytPlayerSrc = `https://www.youtube.com/embed/${data['data-videoid']}?autoplay=1`;
+        const playerEl = document.createElement('iframe');
+        playerEl.setAttribute('type', 'text/html');
+        playerEl.setAttribute('width', '1080');
+        playerEl.setAttribute('height', '1920');
+        playerEl.setAttribute('frameborder', '0');
+        playerEl.setAttribute('src', ytPlayerSrc);
+
+        playersEl.appendChild(playerEl);
+        sendMessage({ success: true });
+      }
+
+      function sendMessage(responseMessage) {
+        console.log('Sending message', responseMessage);
+        iframeEl.contentWindow
+            .postMessage(responseMessage, POST_MESSAGE_ORIGIN);
+      }
+
+      function receiveMessage(requestMessage) {
+        console.log('Received message', requestMessage);
+        obj = requestMessage.data;
+
+        switch (obj.message) {
+          case MessageName.HOIST_VIDEO:
+            hoistVideo(obj.data);
+            break;
+          default:
+            console.log('Not handling unknown message', requestMessage);
+        }
+      }
+
+      window.addEventListener('message', receiveMessage, false);
+
+      const playersEl = document.createElement('div');
+      playersEl.id = 'players';
+
+      const iframeEl = document.createElement('iframe');
+      iframeEl.setAttribute('src', './sfv-doc.html#cap=hoist');
+      iframeEl.id = 'docFrame';
+
+      const mainEl = document.createElement('main');
+      mainEl.appendChild(playersEl);
+      mainEl.appendChild(iframeEl);
+      document.body.appendChild(mainEl);
+    </script>
+  </body>
+</html>
