@@ -27,7 +27,7 @@ const TAG = 'amp-short-video';
  * @param {!Element} element
  * @return {!Element}
  */
-const buildSystemLayer = element => {
+const buildSystemLayer = (element) => {
   const html = htmlFor(element);
   return html`
     <nav>
@@ -39,7 +39,7 @@ const buildSystemLayer = element => {
   `;
 };
 
-const isReservedAttributeName = name => {
+const isReservedAttributeName = (name) => {
   return name.startsWith('i-amphtml') || ['class'].indexOf(name) >= 0;
 };
 
@@ -60,6 +60,9 @@ export class AmpShortVideo extends AMP.BaseElement {
     /** @private {?../../../src/service/viewer-interface.ViewerInterface} */
     this.viewer_ = null;
 
+    /** @private {boolean} */
+    this.allowHoisting_ = false;
+
     /** @private {!Object} */
     this.attributes_ = {};
   }
@@ -76,14 +79,44 @@ export class AmpShortVideo extends AMP.BaseElement {
     hostEl.appendChild(this.systemLayer_);
 
     this.viewer_ = Services.viewerForDoc(this.element);
+    this.viewer_.onMessage('unmute', (unusedData) => this.unmuteVideo_());
     this.pullAttributes_();
 
     Services.extensionsFor(this.win)
       .installExtensionForDoc(this.getAmpDoc(), 'amp-viewer-integration')
       .then(() => this.maybeHoistVideo_())
-      .then(() => this.onVideoHoistSuccess_, () => this.onVideoHoistFailure_());
+      .then(
+        () => this.onVideoHoistSuccess_,
+        () => this.onVideoHoistFailure_()
+      );
   }
 
+  /**
+   * Unmutes the video.
+   */
+  unmuteVideo_() {
+    if (!this.hasVideoInAmpDoc_()) {
+      console.error('No video to unmute');
+      return;
+    }
+
+    this.videoLayer_.getImpl().then((impl) => impl.unmute());
+  }
+
+  /**
+   * @return {boolean} true, if there is a video layer element and it inherits
+   *     the AMP video interface.
+   */
+  hasVideoInAmpDoc_() {
+    return (
+      this.videoLayer_ &&
+      !this.videoLayer_.classList.contains('i-amphtml-video-interface')
+    );
+  }
+
+  /**
+   *
+   */
   pullAttributes_() {
     for (let i = 0; i < this.element.attributes.length; i++) {
       const item = this.element.attributes.item(i);
@@ -95,6 +128,10 @@ export class AmpShortVideo extends AMP.BaseElement {
     }
   }
 
+  /**
+   * @return {!Promise} A promise that is resolved when the video is
+   *     successfully hoisted, or rejected if hoisting fails or is disallowed.
+   */
   maybeHoistVideo_() {
     console.log('maybe hoist');
     if (!this.viewer_.hasCapability('hoist')) {
@@ -110,31 +147,37 @@ export class AmpShortVideo extends AMP.BaseElement {
     return Promise.resolve();
   }
 
+  /**
+   *
+   */
   onVideoHoistSuccess_() {
     console.log('hoist succeeded');
     this.isVideoDelegatedToViewer_ = true;
   }
 
+  /**
+   *
+   */
   onVideoHoistFailure_() {
     console.log('hoist failed');
     // Create an amp-youtube element.
 
-    // this.mutateElement(() => {
-    //   this.videoLayer_ = this.win.document.createElement('amp-youtube');
-    //   Object.keys(this.attributes_).forEach(attrName => {
-    //     this.videoLayer_.setAttribute(attrName, this.attributes_[attrName]);
-    //   });
-    //   this.videoLayer_.setAttribute('autoplay', '');
-    //   // this.videoLayer_.setAttribute('data-param-controls', '0');
-    //   // this.videoLayer_.setAttribute('data-param-disablekb', '1');
-    //   // this.videoLayer_.setAttribute('data-param-playsinline', '1');
-    //   this.element.appendChild(this.videoLayer_);
-    // });
+    this.mutateElement(() => {
+      this.videoLayer_ = this.win.document.createElement('amp-youtube');
+      Object.keys(this.attributes_).forEach((attrName) => {
+        this.videoLayer_.setAttribute(attrName, this.attributes_[attrName]);
+      });
+      this.videoLayer_.setAttribute('autoplay', '');
+      this.videoLayer_.setAttribute('data-param-controls', '0');
+      this.videoLayer_.setAttribute('data-param-disablekb', '1');
+      this.videoLayer_.setAttribute('data-param-playsinline', '1');
+      this.element.appendChild(this.videoLayer_);
+    });
 
-    // Services.extensionsFor(this.win).installExtensionForDoc(
-    //   this.getAmpDoc(),
-    //   'amp-youtube'
-    // );
+    Services.extensionsFor(this.win).installExtensionForDoc(
+      this.getAmpDoc(),
+      'amp-youtube'
+    );
   }
 
   /** @override */
@@ -143,6 +186,6 @@ export class AmpShortVideo extends AMP.BaseElement {
   }
 }
 
-AMP.extension('amp-short-video', '0.1', AMP => {
+AMP.extension('amp-short-video', '0.1', (AMP) => {
   AMP.registerElement('amp-short-video', AmpShortVideo, CSS);
 });
